@@ -1,0 +1,25 @@
+# IBM VPC Dynamic Inventory Configuration
+plugin: ibm.cloudcollection.vpc_inventory
+
+# Regions to query (required)
+regions:
+  - eu-de
+
+# Disable cache for testing
+cache: false
+
+# Enable floating IPs (this is what we fixed)
+use_floating_ips: true
+
+# Optional filters
+filters:
+  status: 'running'
+
+# Optional: Custom groups
+groups:
+  web_servers: "'web' in name"
+  database_servers: "'db' in name"
+
+# Optional: Add extra host variables (simplified to avoid attribute errors)
+compose:
+  ansible_user: "'root'"

@@ -1,0 +1,23 @@
+# Basic VPC Dynamic Inventory Configuration
+plugin: ibm.cloudcollection.vpc_inventory
+
+# Regions to query (required)
+regions:
+  - us-south
+  - us-east
+
+# Use private/internal IP addresses (default)
+use_floating_ips: false
+
+# Optional: Filter running instances only
+filters:
+  status: 'running'
+
+# Optional: Create groups based on tags
+groups:
+  web_servers: "'web' in (tags or [])"
+  database_servers: "'database' in (tags or [])"
+
+# Optional: Add custom host variables
+compose:
+  ansible_user: "'root'"

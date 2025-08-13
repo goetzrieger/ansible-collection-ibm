@@ -220,11 +220,33 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         """
         Verify inventory source is valid
         """
-        if super().verify_file(path):
+        logger.debug(f"verify_file called with path: {path}")
+        display.vvv(f"VPC Inventory: verifying file {path}")
+        
+        # Check basic path requirements first
+        import os
+        file_exists = os.path.isfile(path)
+        logger.debug(f"File exists: {file_exists}")
+        display.vvv(f"VPC Inventory: file exists = {file_exists}")
+        
+        super_result = super().verify_file(path)
+        logger.debug(f"super().verify_file({path}) returned: {super_result}")
+        display.vvv(f"VPC Inventory: super verify_file result = {super_result}")
+        
+        if super_result:
             logger.debug("Path: %s", path)
-            if path.endswith(('.vpc.yml', '.vpc.yaml')):
+            path_ends_correctly = path.endswith(('.vpc.yml', '.vpc.yaml'))
+            logger.debug(f"Path ends with .vpc.yml or .vpc.yaml: {path_ends_correctly}")
+            display.vvv(f"VPC Inventory: path ends correctly = {path_ends_correctly}")
+            
+            if path_ends_correctly:
+                display.vvv(f"VPC Inventory: file {path} verified successfully")
                 return True
             raise AnsibleParserError("Path is not valid. All IBM Cloud inventory sources must have a suffix of .vpc.yml or .vpc.yaml.")
+        else:
+            logger.debug(f"super().verify_file() failed for path: {path}")
+            display.vvv(f"VPC Inventory: super verify_file failed for {path}")
+            return False
 
     def parse(self, inventory, loader, path, cache=True):
         """
@@ -237,10 +259,16 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         # Read the inventory YAML file
         self._configure(path)
         cache_key = self.get_cache_key(path)
+        
+        # Debug configuration
+        logger.debug(f"Inventory configuration: use_floating_ips={self.use_floating_ips}, regions={self.regions}")
+        # Also output to display for execution environment debugging
+        display.vvv(f"VPC Inventory: use_floating_ips={self.use_floating_ips}, regions={self.regions}")
 
         # cache may be True or False at this point to indicate if the inventory is being refreshed
         # get the user's cache option too to see if we should save the cache if it is changing
         user_cache_setting = self.get_option('cache')
+        logger.debug(f"Cache settings: user_cache_setting={user_cache_setting}, cache_refresh={not cache}")
 
         # read if the user has caching enabled and the cache isn't being refreshed
         attempt_to_read_cache = user_cache_setting and cache
@@ -253,6 +281,9 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
         if attempt_to_read_cache:
             try:
                 vsis = self._cache[cache_key]
+                logger.debug(f"Cache hit for key {cache_key}. Found {len(vsis)} cached VSIs")
+                vsis_with_floating_ip = [v for v in vsis if 'floating_ip' in v]
+                logger.debug(f"Cached VSIs with floating IPs: {len(vsis_with_floating_ip)}")
             except KeyError:
                 # This occurs if the cache_key is not in the cache or if the cache_key expired,
                 # so the cache needs to be updated
@@ -266,6 +297,8 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
             vsis = self.get_virtual_server_instances()
 
         if cache_needs_update:
+            vsis_with_floating_ip = [v for v in vsis if 'floating_ip' in v]
+            logger.debug(f"Updating cache with {len(vsis)} VSIs, {len(vsis_with_floating_ip)} have floating IPs")
             self._cache[cache_key] = vsis
 
         self._populate_from_vsis(vsis)
@@ -305,13 +338,21 @@ class InventoryModule(BaseInventoryPlugin, Constructable, Cacheable):
                 # Only add an ansible_host variable if it differs from the displayname in the inventory
                 if hostname != entry_name:
                     self.inventory.set_variable(entry_name, "ansible_host", hostname)
+                # Process compose vars, groups, and keyed groups with individual error handling
                 try:
-                    self._set_composite_vars(self.compose, vsi, entry_name, strict=True)
-                    self._add_host_to_composed_groups(self.groups, vsi, entry_name, strict=True)
-                    self._add_host_to_keyed_groups(self.keyed_groups, vsi, entry_name, strict=True)
-                except Exception:
-                    logger.debug("Attribute not found in the VSI")
-                    continue
+                    self._set_composite_vars(self.compose, vsi, entry_name, strict=False)
+                except Exception as e:
+                    logger.debug(f"Error setting composite vars for {entry_name}: {e}")
+                    
+                try:
+                    self._add_host_to_composed_groups(self.groups, vsi, entry_name, strict=False)
+                except Exception as e:
+                    logger.debug(f"Error adding {entry_name} to composed groups: {e}")
+                    
+                try:
+                    self._add_host_to_keyed_groups(self.keyed_groups, vsi, entry_name, strict=False)
+                except Exception as e:
+                    logger.debug(f"Error adding {entry_name} to keyed groups: {e}")
 
     def get_virtual_server_instances(self):
         vsis = []
